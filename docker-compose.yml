@@ -1,0 +1,139 @@
+
+version: '3.8'
+
+# Development environment - Resource-conscious configuration
+services:
+  # 🚀 FastAPI - Main Application with Intelligent Routing
+  fastapi:
+    build:
+      context: ./fastapi
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=info
+      # Active API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - HUGGINGFACE_API_KEY=${HUGGINGFACE_API_KEY}
+      # Placeholder API Keys (Uncomment and fill when ready)
+      # - COHERE_API_KEY=${COHERE_API_KEY}
+      # - AI21_API_KEY=${AI21_API_KEY}
+      # - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      # - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      # - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      # - TOGETHER_API_KEY=${TOGETHER_API_KEY}
+      - OLLAMA_HOST=http://ollama:11434
+      - REDIS_URL=redis://redis:6379
+      # Google Drive Backup
+      - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
+      - BACKUP_RETENTION_DAYS=180
+    volumes:
+      - ./fastapi:/app
+      - ./data/conversations:/app/data/conversations
+      - ./credentials:/app/credentials:ro
+    depends_on:
+      - redis
+      - ollama
+    networks:
+      - ai-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+  # 🧠 Ollama - Local LLM Server (Llama3, Mistral)
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_ORIGINS=*
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KEEP_ALIVE=5m
+      - OLLAMA_NUM_PARALLEL=2
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - ai-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 16G
+        reservations:
+          memory: 8G
+
+  # 🔄 Redis - Caching for intelligent routing decisions
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - ai-network
+    restart: unless-stopped
+    command: redis-server --maxmemory 512mb --maxmemory-policy lru
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+  # 📊 Prometheus - Lightweight monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - ai-network
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=7d'
+      - '--storage.tsdb.retention.size=2GB'
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+  # 🔄 Backup Service - Google Drive Integration
+  backup-service:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.backup
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/credentials/service-account.json
+      - GOOGLE_DRIVE_FOLDER_ID=${GOOGLE_DRIVE_FOLDER_ID}
+      - BACKUP_RETENTION_DAYS=180
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./data:/app/data:ro
+      - ./credentials:/app/credentials:ro
+    networks:
+      - ai-network
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+
+volumes:
+  ollama-data:
+  redis-data:
+  prometheus-data:
+
+networks:
+  ai-network:
+    driver: bridge

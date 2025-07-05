@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir \
+    google-api-python-client==2.114.0 \
+    google-auth==2.26.1 \
+    schedule==1.2.0
+
+# Copy backup script
+COPY backup_to_drive.py .
+COPY cleanup_old_backups.py .
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Run backup service
+CMD ["python3", "backup_to_drive.py"]
